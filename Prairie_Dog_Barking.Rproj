@@ -1,0 +1,236 @@
+```{r setup, echo=FALSE,warning=FALSE,message=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(knitr)
+library(alr4)
+library(ggplot2)
+library(faraway)
+#library(kableExtra)
+library(dplyr)
+library(tidyverse)
+library(lme4)
+library(gmodels)
+library(emmeans)
+```
+
+
+### Introduction To Problem
+
+A researcher conducted a study to assess the effect of human disturbances on the behavior of prairie dogs. A total of 12 colonies were selected, where 4 colonies were located in urban environment, 4 in a rural environment, and 4 in the boundary between the two environments (i.e., urban-rural boundary). At each colony, the researcher approached the prairie dogs and measured the distance between the prairie dog that sounded the first alarm bark and the researcher at the time of the first bark. Two starting locations were randomly selected along the edge of a colony and the experiment was repeated twice at each colony with the two starting locations. The data consist of two bark distances in meters (m) for each colony.
+
+### Analysis Goals:
+
+Analyze the data with the goal of understanding prairie dogs' response to human intrusion in the three different types of environment.
+
+In addition to the things you should always do for a statistical analysis please address the following specific analysis goals.
+
+The specific goals of the analysis:
+
+1. Are the bark distances different in the three types of environment?
+
+2. If you find evidence the typical distance differs between environments, describe the differences.
+
+3. Report environment differences in terms of confidence intervals.
+
+
+
+### Read Prairie Dog Data
+
+```{r,datareading}
+pdog<-read.table("pdogs.txt",header=TRUE)
+pdog$env<-factor(pdog$environment,levels=c(1,2,3),labels=c("Rural","Boundary","Urban"))
+summary(pdog)
+```
+
+In these data the id variable denotes the colony number that ranges from 1-4 for each environment (env). Please note that colony id=2 in one env is different than colony id=2 in a different environment. To properly define colony to colony variation it requires specifying id variation within each environment.
+
+Statistical model:
+
+$distance_{ijk} =\mu + \alpha_{i} + \gamma_{ij} + e_{ijk}$
+
+The model specifies the distance for environment $i$, colony $j$, replication $k$, $k=1,2$.  Here $\gamma$ is a random effect for colony variation, and $e$ is the residual random effect that in this case measures the variation between the two trials at the same colony location.
+
+
+### Basic Model To Get You Started
+
+The following model properly specifies the colony to colony variation (1|env:id) and the residual variation is left over.  You must now modify this model to properly answer the questions for this investigation.
+
+```{r}
+startmod<-lmer(distance ~ env+(1|env:id),data=pdog,REML=FALSE)
+summary(startmod)
+```
+
+
+### Exploratory Analysis
+
+Tables and graphs
+
+```{r}
+#library(kableExtra)
+mytable<-pdog %>% group_by(env) %>% summarise(Avg_distance=mean(distance),Sd=sd(distance),n=n())
+kable(mytable)
+```
+
+```{r}
+p<-ggplot(data=pdog,aes(x=env,y=distance,group=env,colour=env))
+p+geom_point(size=1.5)+geom_line()+scale_colour_hue("env",breaks=c("Rural","Boundary","Urban"))+ xlab("Type of Prairie Dogs")+ylab("Distance")
+
+p1<-ggplot(data=pdog,aes(x=env,y=distance))
+p1<-p1+geom_point(aes(group=env,fill=env),position=position_jitterdodge(dodge.width = 0.90))
+p1+geom_boxplot(aes(fill=env),outlier.colour=NA,alpha=0.50,position=position_dodge(width=0.90))+
+xlab("Type of Prairie Dogs")+ylab("Distance")+
+guides(fill=guide_legend(title="Types of Environment"))
+
+
+```
+
+
+Discussion:
+
+- We can tell from the summary table that prairie dogs pertaining to Rural environment have the highest average barking distance of 51.375 meters, Boundary dogs have an average barking distance of 40.500 meters and Urban dogs have the lowest average barking distances of 32.875 meters.
+
+- From the ggplot, we can tell that Prairie dogs that in Rural areas tend to have on average the highest barking distance and in Urban areas they tend to have the shortest distance. Boundary dogs have the most widespread barking distances from the sample population =8.  
+
+- However, there are couple of odd observations for Boundary and Urban prairie dogs.
+
+### Specify Model
+
+Define and summarize the model that should be used for these data.
+
+```{r}
+prairiedog.aov<-aov(distance~env+Error(env:id),data=pdog)
+summary(prairiedog.aov)
+```
+
+Discussion of the anova model :
+
+Hypothesis test: 
+-NH: $\alpha_i$ = 0 vs AH: $\alpha_i$$\neq$ 0
+-Fstat: 0.04
+-Pvalue: 0.96
+-Conclusion: A very big p-value suggests that the data is likely to occur under NH conditions. There is no evidence to doubt the NH and no evidence to support the AH. Hence, we can conclude that there is no evidence to doubt that barking distances differ across different environment.
+
+
+```{r}
+prairiedog.lmer<-lmer(distance~env+(1|env:id),data=pdog,REML=FALSE)
+summary(prairiedog.lmer)
+# Model with different variation
+prairiedog1.lmer<-lmer(distance~env+(1|env)+(1|id),data=pdog,REML=FALSE)
+summary(prairiedog1.lmer)
+# Model with Fixed Effects
+prairie0.lmer<-lmer(distance~1+(1|env:id),data=pdog,REML=FALSE)
+summary(prairie0.lmer)
+```
+
+
+
+#### Model Comparisons
+
+```{r}
+prairielmernull<-lmer(distance~(1|env:id),data=pdog,REML=FALSE)
+prairielmernull2<-lmer(distance~(1|id),data=pdog,REML=FALSE)
+prairielmer2<-lmer(distance~env+(1|id),data=pdog,REML=FALSE)
+prairielmer1<-lmer(distance~env+(1|env:id),data=pdog,REML=FALSE)
+```
+
+```{r}
+# Model Estimation using the AIC
+anova(prairielmernull,prairielmernull2,prairielmer2,prairielmer1)
+```
+
+
+Discussion on the model selection:
+- Different models have been created with different variation. Smaller the AIC, better the model fits well with the data. We can tell that the model (prairielmer1) has the lowest AIC and fits well with the data and would be used for furthur analysis.
+
+### Examine Model Residuals
+
+```{r}
+resids1<-resid(prairielmer1)
+fittedvals1<-fitted(prairielmer1)
+mydataframe1<-data.frame(pdog,resids1,fittedvals1)
+p3<-ggplot(data=pdog,aes(x=fittedvals1,y=resids1))
+p3+geom_point(aes(colour=env),size=2.5)+geom_hline(yintercept = 0)+scale_colour_hue("Env",breaks=c("Rural","Boundary","Urban"))+xlab("Fitted Values")+ylab("Residuals")
+
+
+```
+
+Discussion on the residual plot:
+- We can tell from the residual plot that there is overall no sign of curvature (non-constant variance) as fitted values are around zero. However, we can tell that there maybe a slight difference in variance across different environment groups (that may potentially violate model assumption). There are two unusual observations that may be a risk of outliers. Having said that, the plot shows the model fits well with the data.
+
+
+#### Testing for outliers
+```{r}
+library(ResourceSelection)
+hoslem.test(pdog$distance,fitted(prairielmer1),g=5)
+#influenceIndexPlot(prairielmer1)
+#dfbetasPlots(prairielmer1)
+#influencePlot(prairielmer1,id.n=8)
+#outlierTest(prairielmer1)
+#outlierTest(prairielmer1,data=pdog)
+```
+
+Discussion: A very large p-value indicates there is very strong evidence that the model fits well with the data.
+
+- Likelihood Ratio Test for Fixed Effect:
+
+```{r}
+anova(prairielmernull,prairielmer1)
+```
+
+Discussion:
+
+Hypothesis test:
+-NH: $\alpha_i$ = 0 vs AH: $\alpha_i$$\neq$ 0
+-Tstat: 9.39
+-Pvalue: 0.0092
+-Conclusion: A very small p-value indicates the data is inconsistent under NH conditions. There is evidence to suggest that different environment effects are not zero. There is evidence of differences in barking differences across different environment groups.
+
+```{r}
+confint(prairiedog.lmer,method="profile")
+```
+
+Discussion on how the barking distances differ across different environment groups:
+- The confidence interval bounds indicates that all the environment levels are significantly different from each other as Rural have all plausible positive values, Boundary and Urban have all plausible negative values.
+- Rural tend to have the highest barking distance as compared to other environment groups as intervals are positive and significantly higher than the rest.
+
+
+
+#### Using lmer model and Emmeans Analysis
+
+```{r,warning=FALSE,message=FALSE}
+plot(allEffects(prairiedog.lmer))
+emmip(prairiedog.lmer, 1 ~ env)
+library(sjPlot)
+library(sjmisc)
+library(sjlabelled)
+plot_model(prairielmer1,type="pred",terms=c("env"))
+```
+
+```{r}
+comparisons<-emmeans(prairielmer1,~env)
+pairs(comparisons)
+confint(pairs(comparisons))
+#confint(contrast(comparisons,method="pairwise"))
+CLD(comparisons,alpha=0.05)
+```
+
+
+Discussion on Emmeans, difference, significance and confidence interval:
+
+- The effects plot and the emmip command output indicates that Rural prairie dogs have the highest barking distance and Urban prairie dogs have the shortest barking distance.
+
+- From the emmeans output, we can discuss that Rural prairie dogs tend to have on average the highest barking distance of 51 meters, Boundary dogs have an average barking distance of 40 meters and Urban prairie dogs have the lowest average barking distance of 33 meters.
+
+- The CLD command output indicates that Urban and Rural prairie dogs are significantly different from each other, where as Boundary prairie dogs are not significantly different from Urban and Rural prairie dogs.
+
+- We can tell from the contrast output that:
+
+1) Rural prairie dogs have higher 10.9 meters higher barking distances from Boundary prairie dogs and the differences are statistically insignificant with large p-value (0.1700). The confidence interval (-3.8,26) indicates the difference in barking distances has plausible values that contains zero also indicating the differences are statistically insignificant.
+
+2) Rural prairie dogs have higher 18.5 meters higher barking distances from Urban prairie dogs and the differences are statistically significant with small p-value (0.0100). The confidence interval (3.8,33) indicates the difference in barking distances has plausible values that contains all positive values also indicating the differences are statistically significant. 
+
+3) Boundary prairie dogs have higher 7.6 meters higher barking distances from Urban prairie dogs and the differences are statistically insignificant with large p-value (0.3900). The confidence interval (-7.1,22) indicates the difference in barking distances has plausible values that contains zero also indicating the differences are statistically insignificant.    
+
+
+Summary: 
+
+- Rural prairie dogs have higher 18.5 meters higher barking distances from Urban prairie dogs and the differences are statistically significant with small p-value and all positive confidence interval values.
